@@ -1,7 +1,25 @@
-from math import sin, cos, sqrt, pi, atan2
-from PIL import Image, ImageDraw
+# This example assumes we have a mesh object selected
 
-# rmin = 6.783e6
+import bpy
+import bmesh
+from math import sin, cos, sqrt, pi, atan2
+
+# Get the active mesh
+me = bpy.context.object.data
+
+
+# Get a BMesh representation
+bm = bmesh.new()   # create an empty BMesh
+bm.from_mesh(me)   # fill it in from a Mesh
+
+
+#v1 = bm.verts.new((2.0, 2.0, 2.0))
+#v2 = bm.verts.new((-2.0, 2.0, 2.0))
+#v3 = bm.verts.new((-2.0, -2.0, 2.0))
+
+#bm.faces.new((v1, v2, v3))
+
+
 rmin = 2.783e6
 rmax = 9.253e6
 bigG = 6.67408e-11
@@ -35,19 +53,17 @@ def calculateCoords(time):
 
     return (radius, theta)
 
-img = Image.new('RGB', (512, 512))
-
-draw = ImageDraw.Draw(img)
-
 def drawRadial(r, theta):
     xypos = [r * cos(theta), r * sin(theta)]
-    # Shift it to be in the center
-    xypos[0] += 256
-    xypos[1] += 256
-    coords = [(xypos[0] - 2, xypos[1] - 2), (xypos[0] + 2, xypos[1] + 2)]
-    draw.ellipse(coords)
+    if preVert is None:
+        preVert = bm.verts.new((xypos[0], xypos[1], 0))
+    else:
+        newVert = bm.verts.new((xypos[0], xypos[1], 0))
+        bm.edges.new((preVert, newVert))
+        preVert = newVert
 
-drawRadial(0, 0)
+
+preVert = None
 
 for i in range(78):
     seconds = i * 60
@@ -56,4 +72,8 @@ for i in range(78):
     print(position)
     drawRadial(*position)
 
-img.show()
+
+
+# Finish up, write the bmesh back to the mesh
+bm.to_mesh(me)
+bm.free()  # free and prevent further access
