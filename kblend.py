@@ -1,16 +1,24 @@
 import bpy
 from bpy.props import *
+import bmesh
 from math import sin, cos, sqrt, pi, atan2
+from mathutils import Vector, Quaternion
 
 
-def uObj(ob):
-    if not ob.doorbit:
-        return
+# PLEASE READ:
+# To use in blender, create an empty scene with
+# 2 objects with no vertices. One should be at the origin, named OD.
+# Run this file in the text editor, and then look at the properties panel.
+# Enable "Do Orbit" on the other empty object. Animate the time value if
+# necessary, but be sure to go to the graph view and set the handles to
+# "Vector" to assure accurate simulations.
+
+def calculateCords(ob, time=None):
     bigG = 6.67408e-11
     mEarth = 5.972e24
-    rmax = ob.rmax
-    rmin = ob.rmin
-    time = ob.time
+    rmax = ob.rmax * 10 ** 6
+    rmin = ob.rmin * 10 ** 6
+    time = ob.time if time == None else time
     ecc = (rmax - rmin) / (rmax + rmin)
 
     p = 2 / (1 / rmin + 1 / rmax)
@@ -22,6 +30,7 @@ def uObj(ob):
 
     meananomaly = (time % period) * (2 * pi) / period
 
+    # Use Newton's Method (9 steps) to calculate the eccentric anomaly
     eanom = meananomaly
     for it in range(9):
         eanom = meananomaly + ecc * sin(eanom)
@@ -32,18 +41,70 @@ def uObj(ob):
 
     radius /= 4e5  # Make it smaller
 
+    # Take the argument of periapsis into account
+    # theta += ob.argofp
+
     xco, yco = radius * cos(theta), radius * sin(theta)
 
-    ob.location = (xco, yco, 0)
+    # Rotate around y-axis for inclination:
+    x, y, z = xco, yco, 0
+
+    rotate1 = Quaternion((0.0, 1.0, 0.0), ob.inc)
+
+    x, y, z = rotate1 * Vector((x, y, z))
+
+    # angle to rotate for the argument of periapsis
+    axis = rotate1 * Vector((0, 0, 1))
+    # Rotate around for arg of periapsis
+    rotate = Quaternion((axis.x, axis.y, axis.z), ob.argofp)
+    x, y, z = rotate * Vector((x, y, z))
+
+    # Rotate around z-axis for longitude of ascending node
+    x, y, z = Quaternion((0.0, 0.0, 1.0), ob.longascend) * Vector((x, y, z))
+
+    return (x, y, z)
+
+
+def uObj(ob):
+    if not ob.doorbit:
+        return
+    ob.location = calculateCords(ob)
 
 
 def updateProperties(self, context):
+    # check if orbitdisplay object exists
+    me = bpy.data.objects["OD"].data
+    # create a BMesh representation
+    bm = bmesh.new()
+    bm.from_mesh(me)
+
+    # TODO: Create OD object if it doesn't exist
+
+
     ob = context.object
     if not ob:
         return
 
     # Update the position of the object
     uObj(ob)
+
+    # Remove the old verticies of the orbit display
+    for v in bm.verts:
+        bm.verts.remove(v)
+
+    # Draw the orbit display
+    preVert = None
+    for i in range(100):
+        seconds = i * 60
+        position = calculateCords(ob, time=seconds)
+        if preVert is None:
+            preVert = bm.verts.new(position)
+        else:
+            newVert = bm.verts.new(position)
+            bm.edges.new((preVert, newVert))
+            preVert = newVert
+    bm.to_mesh(me)
+    bm.free()
 
 
 bpy.types.Object.doorbit = BoolProperty(
@@ -52,13 +113,28 @@ bpy.types.Object.doorbit = BoolProperty(
     update=updateProperties)
 
 bpy.types.Object.rmin = FloatProperty(
-    name="Min Radius",
-    default=2.783e6,
+    name="Perigee",
+    default=2.783,
     update=updateProperties)
 
 bpy.types.Object.rmax = FloatProperty(
-    name="Max Radius",
-    default=6.783e6,
+    name="Apogee",
+    default=6.783,
+    update=updateProperties)
+
+bpy.types.Object.argofp = FloatProperty(
+    name="Arg of Periapsis",
+    default=0,
+    update=updateProperties)
+
+bpy.types.Object.inc = FloatProperty(
+    name="Inclination",
+    default=0,
+    update=updateProperties)
+
+bpy.types.Object.longascend = FloatProperty(
+    name="Longitude of Ascending Node",
+    default=0,
     update=updateProperties)
 
 bpy.types.Object.time = FloatProperty(
@@ -80,6 +156,9 @@ class OrbitPanel(bpy.types.Panel):
         layout.prop(ob, 'doorbit')
         layout.prop(ob, 'rmin')
         layout.prop(ob, 'rmax')
+        layout.prop(ob, 'inc')
+        layout.prop(ob, 'argofp')
+        layout.prop(ob, 'longascend')
         layout.prop(ob, 'time')
 
 
